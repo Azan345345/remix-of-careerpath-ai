@@ -1,345 +1,1050 @@
-import { useRef, useEffect } from "react";
-import { motion } from "framer-motion";
-import { Paperclip, ArrowUp, Mic, CheckCircle, RefreshCw, Pencil, Send, Save, XCircle, Shield, FileText, Code, Users, Laptop } from "lucide-react";
-import { JobCard } from "@/components/JobCard";
+import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Paperclip, ArrowUp, Copy, ThumbsUp, ThumbsDown, RefreshCw,
+  Pencil, Sparkles, Search, FileText, Mail, Zap, Bot, Loader2, CheckCircle2, GitMerge,
+  Briefcase, Brain, ChevronRight,
+} from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { sendChatMessage, getChatHistory } from "@/services/api";
+import { useAgentStore, JobStreamState, StreamSource, StreamJob } from "@/stores/agent-store";
+import { JobResultsCard } from "./chat-cards/JobResultsCard";
+import { CVReviewCard } from "./chat-cards/CVReviewCard";
+import { EmailReviewCard } from "./chat-cards/EmailReviewCard";
+import { ApplicationSentCard } from "./chat-cards/ApplicationSentCard";
+import { InterviewPrepCard } from "./chat-cards/InterviewPrepCard";
+import { CVSelectionCard } from "./chat-cards/CVSelectionCard";
+import { CVImprovementActionCard } from "./chat-cards/CVImprovementActionCard";
+import { CVImprovedCard } from "./chat-cards/CVImprovedCard";
 
-const JOB_CARDS = [
-  {
-    company: "Stripe", title: "Staff UI Engineer — Design Systems",
-    location: "San Francisco, CA (Remote OK)", salary: "$185,000 — $225,000", type: "Full-time",
-    matchScore: 94, logoInitial: "S", logoBg: "#EDE9FE", logoText: "#7C3AED",
-    ringColor: "hsl(349 89% 60%)",
-    reasons: [
-      "Your 6 years of React/Next.js directly matches their core tech stack requirement.",
-      "Payment gateway optimization project at TechCorp aligns with Stripe's product domain.",
-      "Leadership experience managing 4-person frontend team matches Staff-level expectations.",
-    ],
-  },
-  {
-    company: "Vercel", title: "Senior Frontend Developer — DX Team",
-    location: "New York, NY (Hybrid)", salary: "$165,000 — $195,000", type: "Full-time",
-    matchScore: 88, logoInitial: "V", logoBg: "#000000", logoText: "#FFFFFF",
-    ringColor: "hsl(350 94% 72%)",
-    reasons: [
-      "Deep Next.js expertise is their primary requirement — near-perfect alignment.",
-      "Open-source contributions to React ecosystem noted in your GitHub profile.",
-      "Minor gap: They prefer WebGL/Canvas experience which isn't highlighted in your CV.",
-    ],
-  },
-  {
-    company: "Airbnb", title: "Frontend Engineer III — Guest Experience",
-    location: "Remote (US-based)", salary: "$170,000 — $200,000", type: "Full-time",
-    matchScore: 82, logoInitial: "A", logoBg: "#FFE4E6", logoText: "#E11D48",
-    ringColor: "hsl(38 92% 50%)",
-    reasons: [
-      "Strong React foundation matches their requirements well.",
-      "E-commerce checkout optimization experience translates to booking conversion flows.",
-      "Gap: Heavy GraphQL usage required — not prominently featured in your current CV.",
-    ],
-  },
-];
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  time: string;
+  metadata?: Record<string, any> | null;
+}
 
 function AgentAvatar() {
   return (
-    <div className="w-7 h-7 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
-      <span className="text-[10px] font-bold text-primary font-sans">CA</span>
+    <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 shadow-sm">
+      <Bot size={14} className="text-white" />
     </div>
   );
 }
 
 function AgentLabel({ time }: { time: string }) {
   return (
-    <div className="flex items-center gap-2 mb-1.5">
+    <div className="flex items-center gap-2 mb-2 opacity-50 group-hover:opacity-100 transition-opacity duration-200">
       <AgentAvatar />
-      <span className="text-[11px] text-primary font-sans">CareerAgent · {time}</span>
+      <span className="text-[11px] font-semibold text-primary tracking-wide">CareerAgent</span>
+      <span className="text-[10px] text-slate-400">· {time}</span>
     </div>
   );
 }
 
 function UserLabel({ time }: { time: string }) {
   return (
-    <p className="text-[11px] text-slate-400 font-sans text-right mb-1.5">You · {time}</p>
+    <p className="text-[11px] text-slate-400 font-sans text-right mb-2 opacity-50 group-hover:opacity-100 transition-opacity duration-200">
+      You · {time}
+    </p>
   );
 }
 
-function UserBubble({ children, time }: { children: React.ReactNode; time: string }) {
+function UserBubble({
+  children, time, content, onEdit,
+}: {
+  children: React.ReactNode;
+  time: string;
+  content: string;
+  onEdit?: (text: string) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
   return (
-    <div className="ml-auto max-w-[65%]">
+    <motion.div
+      initial={{ opacity: 0, x: 16, y: 8 }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="ml-auto max-w-[62%] group relative"
+    >
       <UserLabel time={time} />
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl rounded-br-sm px-5 py-4 shadow-sm">
-        <p className="text-[15px] text-slate-900 font-sans leading-relaxed">{children}</p>
-      </div>
-    </div>
-  );
-}
-
-function AgentBubble({ children, time }: { children: React.ReactNode; time: string }) {
-  return (
-    <div className="max-w-[75%]">
-      <AgentLabel time={time} />
-      <div className="bg-white border border-slate-100 border-l-[3px] border-l-rose-300 rounded-tr-2xl rounded-br-2xl rounded-bl-2xl rounded-tl-sm px-5 py-4 shadow-md">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function AgentWideCard({ children, time }: { children: React.ReactNode; time: string }) {
-  return (
-    <div className="max-w-[90%]">
-      <AgentLabel time={time} />
-      <div className="bg-white border border-slate-100 border-l-[3px] border-l-rose-300 rounded-tr-2xl rounded-br-2xl rounded-bl-2xl rounded-tl-sm px-5 py-5 shadow-md">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-export function CenterPanel() {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 500);
-  }, []);
-
-  return (
-    <main className="flex flex-col h-full bg-white">
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
-        {/* MSG 1 — User */}
-        <UserBubble time="10:00 AM">
-          Find me Senior Frontend Engineering roles (React/Next.js) in New York or Remote. My target salary is $160k+.
-          Use my uploaded resume. For the best match, tailor my CV, find the hiring manager's email, draft a cold email,
-          and send it via my connected Gmail.
-        </UserBubble>
-
-        {/* MSG 2 — Agent text */}
-        <AgentBubble time="10:00 AM">
-          <p className="text-[15px] text-slate-900 font-sans leading-relaxed">
-            🎯 Got it. I'm launching a multi-agent search across LinkedIn, Indeed, and Glassdoor. I'll match results against your uploaded resume, score them, and present the top candidates. This should take about 30 seconds.
-          </p>
-          <p className="text-xs italic text-slate-400 font-sans mt-2">⏳ Scanning 3 platforms...</p>
-        </AgentBubble>
-
-        {/* MSG 3 — Job Results */}
-        <AgentWideCard time="10:00 AM">
-          <h3 className="text-lg font-semibold text-foreground font-sans">🔍 Top Matches Found</h3>
-          <p className="text-sm text-slate-500 font-sans mt-1">
-            Scanned 142 listings across LinkedIn, Indeed, and Glassdoor. Here are your top 3 matches:
-          </p>
-          <div className="space-y-3 mt-4">
-            {JOB_CARDS.map((job) => (
-              <JobCard key={job.company} {...job} />
-            ))}
-          </div>
-        </AgentWideCard>
-
-        {/* MSG 4 — User */}
-        <UserBubble time="10:00 AM">
-          Stripe looks perfect. Go ahead — tailor my resume for that role and prepare the outreach email.
-        </UserBubble>
-
-        {/* MSG 5 — Agent text */}
-        <AgentBubble time="10:00 AM">
-          <p className="text-[15px] text-slate-900 font-sans leading-relaxed">
-            Excellent choice — Stripe is your strongest match at 94%. I'm now:
-          </p>
-          <ol className="list-decimal pl-5 mt-2 space-y-1 text-[15px] text-slate-900 font-sans leading-relaxed">
-            <li>Analyzing the Stripe JD for key requirements</li>
-            <li>Rewriting your CV to highlight relevant experience</li>
-            <li>Finding the hiring manager's contact via Hunter.io</li>
-            <li>Drafting a personalized cold email</li>
-          </ol>
-          <p className="text-[15px] text-slate-900 font-sans leading-relaxed mt-2">
-            I'll pause before sending anything so you can review everything first.
-          </p>
-        </AgentBubble>
-
-        {/* MSG 6 — CV Diff */}
-        <AgentWideCard time="10:00 AM">
-          <h3 className="text-base font-semibold text-foreground font-sans">✍️ Resume Tailored for Stripe — Staff UI Engineer</h3>
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 font-sans mb-2">Current</p>
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2">
-                <p className="text-[13px] text-slate-400 font-sans line-through">• Built frontend features using React and JavaScript.</p>
-                <p className="text-[13px] text-slate-400 font-sans line-through">• Managed a small team of developers.</p>
-                <p className="text-[13px] text-slate-400 font-sans line-through">• Worked on payment integrations.</p>
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary font-sans mb-2">Optimized</p>
-              <div className="bg-white border border-rose-200 border-l-[3px] border-l-rose-400 rounded-lg p-4 space-y-2">
-                <p className="text-[13px] text-slate-800 font-sans"><span className="bg-green-50 px-0.5 rounded">• Architected Next.js 14 design system serving 2M+ daily users, reducing LCP by 42%.</span></p>
-                <p className="text-[13px] text-slate-800 font-sans"><span className="bg-green-50 px-0.5 rounded">• Led cross-functional frontend team of 4 engineers, shipping 12 features in Q3 2024.</span></p>
-                <p className="text-[13px] text-slate-800 font-sans"><span className="bg-green-50 px-0.5 rounded">• Engineered PCI-compliant payment flow optimization, increasing conversion rate by 18%.</span></p>
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-3 mt-3">
-            <span className="text-xs text-slate-600 bg-slate-50 rounded-full px-3 py-1 font-sans">📝 12 bullets enhanced</span>
-            <span className="text-xs text-slate-600 bg-slate-50 rounded-full px-3 py-1 font-sans">🎯 8 keywords injected</span>
-            <span className="text-xs text-slate-600 bg-slate-50 rounded-full px-3 py-1 font-sans">📊 6 achievements quantified</span>
-          </div>
-          <div className="flex items-center gap-3 mt-4">
-            <button className="flex items-center gap-2 bg-primary text-white text-sm font-semibold font-sans rounded-lg h-10 px-5 hover:bg-rose-700 transition-colors">
-              <CheckCircle size={16} /> Approve Changes
-            </button>
-            <button className="flex items-center gap-2 border border-slate-200 text-slate-700 text-sm font-medium font-sans rounded-lg h-10 px-4 hover:bg-slate-50 transition-colors">
-              <Pencil size={14} /> Edit Manually
-            </button>
-            <button className="flex items-center gap-2 text-slate-500 text-sm font-sans hover:text-slate-700 transition-colors">
-              <RefreshCw size={14} /> Regenerate
-            </button>
-          </div>
-        </AgentWideCard>
-
-        {/* MSG 7 — Email Composer */}
-        <AgentWideCard time="10:00 AM">
-          <h3 className="text-base font-semibold text-foreground font-sans">📧 Outreach Email Ready for Review</h3>
-          <p className="text-[13px] text-slate-500 font-sans mt-1">HR Contact found via Hunter.io</p>
-
-          <div className="flex items-center gap-2 mt-3 bg-green-50 border border-green-200 rounded-full px-3 py-1 w-fit">
-            <Shield size={14} className="text-green-600" />
-            <span className="text-[13px] font-medium text-slate-800 font-sans">sarah.baker@stripe.com</span>
-            <span className="text-[11px] text-green-600 font-sans">Verified (97% confidence)</span>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm mt-4 space-y-3">
-            <div className="flex gap-2 text-sm font-sans">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase w-14 flex-shrink-0 pt-0.5">From</span>
-              <span className="text-slate-800">johndoe.careers@gmail.com <span className="text-green-600 text-[11px]">Connected</span></span>
-            </div>
-            <div className="flex gap-2 text-sm font-sans">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase w-14 flex-shrink-0 pt-0.5">To</span>
-              <span className="text-slate-800">sarah.baker@stripe.com <span className="text-green-600 text-[11px]">97% verified</span></span>
-            </div>
-            <div className="flex gap-2 text-sm font-sans">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase w-14 flex-shrink-0 pt-0.5">Subject</span>
-              <input
-                defaultValue="Application: Staff UI Engineer, Design Systems — John Doe | Next.js & React Expert"
-                className="flex-1 text-slate-800 bg-transparent border-none outline-none focus:bg-slate-50 focus:border focus:border-slate-200 rounded px-1 -mx-1 font-sans"
-              />
-            </div>
-            <div className="border-t border-slate-100 my-1" />
-            <textarea
-              className="w-full h-[200px] resize-y text-sm text-slate-800 font-sans leading-6 bg-transparent border-none outline-none focus:border focus:border-slate-200 rounded p-1 -m-1"
-              defaultValue={`Hi Sarah,
-
-I noticed Stripe's recent investment in building a unified design system across the Dashboard — it's something I've been deeply passionate about in my current role at TechCorp.
-
-Over the past 3 years, I've architected a Next.js-based component library serving 2M+ daily active users, reducing page load times by 42% and improving developer velocity by 3x through standardized patterns.
-
-I'd love to bring this experience to Stripe's Design Systems team. I've attached my tailored resume highlighting relevant achievements.
-
-Would you have 15 minutes this week for a quick call?
-
-Best regards,
-John Doe
-linkedin.com/in/johndoe | github.com/johndoe`}
-            />
-            <div className="flex items-center gap-3 bg-rose-50 border border-rose-200 rounded-lg px-4 py-2 w-fit">
-              <FileText size={16} className="text-primary" />
-              <span className="text-[13px] font-medium text-slate-700 font-sans">John_Doe_Stripe_Tailored.pdf</span>
-              <span className="text-[11px] text-slate-400 font-sans">2.4 MB</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 mt-4">
-            <button className="flex items-center gap-2 bg-primary text-white text-sm font-semibold font-sans rounded-lg h-11 px-6 hover:bg-rose-700 hover:shadow-glow-rose transition-all">
-              <Send size={14} /> Send via Gmail
-            </button>
-            <button className="flex items-center gap-2 border border-slate-200 text-slate-700 text-sm font-medium font-sans rounded-lg h-11 px-4 hover:bg-slate-50 transition-colors">
-              <Pencil size={14} /> Edit Email
-            </button>
-            <button className="flex items-center gap-2 text-slate-500 text-sm font-sans hover:text-slate-700 transition-colors">
-              <Save size={14} /> Save Draft
-            </button>
-            <button className="flex items-center gap-2 text-red-500 text-sm font-sans hover:text-red-600 transition-colors ml-auto">
-              <XCircle size={14} /> Cancel
-            </button>
-          </div>
-        </AgentWideCard>
-
-        {/* MSG 8 — Success */}
-        <div className="max-w-[75%]">
-          <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
-            <motion.div
-              initial={{ scale: 1 }}
-              animate={{ scale: [1, 1.2, 1] }}
-              transition={{ duration: 0.3 }}
+      <div className="relative">
+        <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl rounded-tr-sm px-5 py-3.5 shadow-md">
+          <p className="text-[14px] text-white font-sans leading-relaxed">{children}</p>
+        </div>
+        {/* Hover actions */}
+        <div className="absolute -top-3 right-0 opacity-0 group-hover:opacity-100 transition-all duration-150 flex gap-0.5 bg-white border border-slate-100 shadow-md rounded-xl p-1 z-10">
+          <button
+            onClick={handleCopy}
+            className="p-1.5 hover:bg-slate-50 rounded-lg transition-colors"
+            title={copied ? "Copied!" : "Copy"}
+          >
+            <Copy size={11} className={copied ? "text-primary" : "text-slate-400"} />
+          </button>
+          {onEdit && (
+            <button
+              onClick={() => onEdit(content)}
+              className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
+              title="Edit & Resend"
             >
-              <CheckCircle size={24} className="text-green-600 flex-shrink-0 mt-0.5" />
-            </motion.div>
-            <div>
-              <p className="text-[15px] font-semibold text-green-700 font-sans">
-                Email sent successfully to sarah.baker@stripe.com
-              </p>
-              <p className="text-[13px] text-green-600/70 font-sans mt-1">
-                Application tracked. You'll be notified of any reply within 7 days.
-              </p>
-              <a href="#" className="text-[13px] text-primary font-sans hover:underline mt-1 inline-block">
-                View in Sent folder →
-              </a>
-            </div>
+              <Pencil size={11} />
+            </button>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function AgentBubble({
+  children, time, content, onRegenerate,
+}: {
+  children: React.ReactNode;
+  time: string;
+  content?: string;
+  onRegenerate?: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [thumbed, setThumbed] = useState<"up" | "down" | null>(null);
+
+  const handleCopy = () => {
+    if (!content) return;
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -16, y: 8 }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      className="max-w-[78%] group relative"
+    >
+      <AgentLabel time={time} />
+      <div className="relative">
+        <div className="bg-white border border-slate-100 rounded-2xl rounded-tl-sm px-5 py-4 shadow-sm relative overflow-hidden">
+          {/* Subtle left accent stripe */}
+          <div className="absolute left-0 top-3 bottom-3 w-0.5 bg-primary rounded-full" />
+          <div className="pl-3">
+            {children}
           </div>
         </div>
-
-        {/* MSG 9 — Interview Prep */}
-        <AgentWideCard time="10:01 AM">
-          <h3 className="text-base font-semibold text-foreground font-sans">🎤 Ready to prepare for the Stripe interview?</h3>
-          <p className="text-sm text-slate-500 font-sans mt-1">I can simulate interview rounds based on Stripe's known patterns.</p>
-          <div className="grid grid-cols-3 gap-3 mt-4">
-            {[
-              { icon: <Code size={24} className="text-slate-600" />, title: "Technical Screen", sub: "React & System Design", dur: "~45 min" },
-              { icon: <Users size={24} className="text-slate-600" />, title: "Behavioral Round", sub: "Leadership & Collaboration", dur: "~30 min" },
-              { icon: <Laptop size={24} className="text-slate-600" />, title: "Take-Home Prep", sub: "Challenge Practice", dur: "~2 hours" },
-            ].map((opt) => (
-              <div key={opt.title} className="bg-white border border-slate-200 rounded-lg p-4 text-center hover:border-rose-200 hover:shadow-sm hover:bg-rose-50/30 transition-all cursor-pointer">
-                <div className="flex justify-center mb-2">{opt.icon}</div>
-                <p className="text-sm font-semibold text-foreground font-sans">{opt.title}</p>
-                <p className="text-xs text-slate-500 font-sans">{opt.sub}</p>
-                <p className="text-[11px] text-slate-400 font-sans mt-1">{opt.dur}</p>
-              </div>
-            ))}
-          </div>
-          <button className="w-full mt-3 h-10 border border-primary text-primary rounded-lg text-sm font-semibold font-sans hover:bg-primary hover:text-white transition-all">
-            Start Mock Interview
+        {/* Hover actions */}
+        <div className="absolute -top-3 right-0 opacity-0 group-hover:opacity-100 transition-all duration-150 flex gap-0.5 bg-white border border-slate-100 shadow-md rounded-xl p-1 z-10">
+          {content && (
+            <button
+              onClick={handleCopy}
+              className="p-1.5 hover:bg-slate-50 rounded-lg transition-colors"
+              title={copied ? "Copied!" : "Copy"}
+            >
+              <Copy size={11} className={copied ? "text-primary" : "text-slate-400"} />
+            </button>
+          )}
+          <button
+            onClick={() => setThumbed(thumbed === "up" ? null : "up")}
+            className="p-1.5 hover:bg-slate-50 rounded-lg transition-colors"
+            title="Good response"
+          >
+            <ThumbsUp size={11} className={thumbed === "up" ? "text-primary" : "text-slate-400 hover:text-primary"} />
           </button>
-        </AgentWideCard>
+          <button
+            onClick={() => setThumbed(thumbed === "down" ? null : "down")}
+            className="p-1.5 hover:bg-slate-50 rounded-lg transition-colors"
+            title="Needs improvement"
+          >
+            <ThumbsDown size={11} className={thumbed === "down" ? "text-slate-700" : "text-slate-400 hover:text-slate-600"} />
+          </button>
+          {onRegenerate && (
+            <button
+              onClick={onRegenerate}
+              className="p-1.5 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
+              title="Regenerate response"
+            >
+              <RefreshCw size={11} />
+            </button>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
-        {/* MSG 10 — Agent text */}
-        <AgentBubble time="10:01 AM">
-          <p className="text-[15px] text-slate-900 font-sans leading-relaxed">
-            Your Stripe application is now live! Here's what's happening next:
-          </p>
-          <ul className="mt-2 space-y-1 text-[15px] text-slate-900 font-sans leading-relaxed">
-            <li>• 📬 Monitoring sarah.baker@stripe.com for replies (7-day window)</li>
-            <li>• 📊 Your pipeline: 1 Active, 2 Ready to Apply</li>
-            <li>• 💡 Tip: Want me to proceed with Vercel (88% match) while we wait?</li>
-          </ul>
-        </AgentBubble>
+const SOURCE_META: Record<string, { icon: string; color: string }> = {
+  indeed:      { icon: "🟦", color: "bg-blue-50 border-blue-100 text-blue-700" },
+  linkedin:    { icon: "🔗", color: "bg-sky-50 border-sky-100 text-sky-700" },
+  google_jobs: { icon: "🌐", color: "bg-green-50 border-green-100 text-green-700" },
+  jsearch:     { icon: "🟡", color: "bg-amber-50 border-amber-100 text-amber-700" },
+};
 
-        <div ref={bottomRef} />
+function SourceSection({ source }: { source: StreamSource }) {
+  const meta = SOURCE_META[source.key] || { icon: "🔍", color: "bg-slate-50 border-slate-100 text-slate-600" };
+  // Hide sources that finished with 0 results — no point showing an empty row
+  if (!source.searching && source.jobs.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${meta.color}`}>
+        <span>{meta.icon}</span>
+        <span>{source.label}</span>
+        {source.searching
+          ? <Loader2 size={10} className="animate-spin" />
+          : <CheckCircle2 size={10} className="text-green-500" />
+        }
+        {!source.searching && <span className="opacity-60">· {source.jobs.length} found</span>}
+      </div>
+      <AnimatePresence>
+        {source.jobs.map((job, i) => (
+          <motion.div
+            key={`${source.key}-${i}`}
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.2, delay: i * 0.04 }}
+            className="flex items-start gap-2.5 p-2.5 bg-white rounded-xl border border-slate-100 shadow-sm"
+          >
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center shrink-0 text-[10px] font-bold text-slate-500 uppercase">
+              {(job.company || "?").slice(0, 2)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-semibold text-slate-800 truncate leading-snug">{job.title}</p>
+              <p className="text-[11px] text-slate-500 truncate">{job.company}{job.location ? ` · ${job.location}` : ""}</p>
+            </div>
+            {job.job_type && (
+              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded shrink-0">
+                {job.job_type}
+              </span>
+            )}
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function LiveJobStreamPanel({ stream }: { stream: JobStreamState }) {
+  const totalFound = stream.sources.reduce((n, s) => n + s.jobs.length, 0);
+  const hasUniqueJobs = stream.uniqueJobs.length > 0;
+  const hrStatuses = stream.hrStatuses;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -16, y: 8 }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
+      className="max-w-[90%]"
+    >
+      <div className="flex items-center gap-2 mb-2 opacity-70">
+        <AgentAvatar />
+        <span className="text-[11px] font-semibold text-primary tracking-wide">CareerAgent</span>
+        <span className="text-[10px] text-slate-400">· Live</span>
+      </div>
+      <div className="bg-white border border-slate-100 rounded-2xl rounded-tl-sm px-4 py-4 shadow-sm space-y-4">
+
+        {/* ── Search sources header ── */}
+        {!hasUniqueJobs && (
+          <>
+            <div className="flex items-center gap-2">
+              <Search size={13} className="text-primary" />
+              <span className="text-[13px] font-semibold text-slate-800">Searching for jobs…</span>
+              {totalFound > 0 && (
+                <span className="ml-auto text-[11px] font-bold text-primary">{totalFound} found so far</span>
+              )}
+            </div>
+
+            {stream.sources.map(source => (
+              <SourceSection key={source.key} source={source} />
+            ))}
+
+            {stream.sources.length === 0 && (
+              <div className="flex items-center gap-2 text-slate-400">
+                <Loader2 size={13} className="animate-spin" />
+                <span className="text-[12px]">Connecting to job sources…</span>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Deduplication status ── */}
+        {stream.deduplicating && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="flex items-center gap-2 pt-2 border-t border-slate-100">
+            <GitMerge size={13} className="text-amber-500 animate-pulse" />
+            <span className="text-[12px] text-slate-600">
+              Deduplicating {totalFound} jobs across {stream.sources.length} sources…
+            </span>
+          </motion.div>
+        )}
+        {stream.dedupResult && !stream.deduplicating && !hasUniqueJobs && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            className="flex items-center gap-2 pt-2 border-t border-slate-100">
+            <CheckCircle2 size={13} className="text-green-500" />
+            <span className="text-[12px] text-slate-600">
+              Removed <strong>{stream.dedupResult.removed}</strong> duplicate{stream.dedupResult.removed !== 1 ? "s" : ""} →{" "}
+              <strong className="text-primary">{stream.dedupResult.after}</strong> unique jobs
+            </span>
+          </motion.div>
+        )}
+
+        {/* ── Unique jobs list (after dedup) with HR status ── */}
+        {hasUniqueJobs && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 pb-1">
+              <CheckCircle2 size={13} className="text-green-500" />
+              <span className="text-[13px] font-semibold text-slate-800">
+                {stream.uniqueJobs.length} unique jobs found
+              </span>
+              {stream.dedupResult && (
+                <span className="text-[11px] text-slate-400 ml-1">
+                  ({stream.dedupResult.removed} duplicate{stream.dedupResult.removed !== 1 ? "s" : ""} removed)
+                </span>
+              )}
+              {Object.keys(hrStatuses).length > 0 && (
+                <span className="ml-auto text-[11px] font-semibold text-indigo-600 flex items-center gap-1">
+                  <Mail size={10} /> Finding HR contacts…
+                </span>
+              )}
+            </div>
+            <AnimatePresence>
+              {stream.uniqueJobs.map((job, i) => {
+                const key = `${job.company}|${job.title}`;
+                const hr = hrStatuses[key];
+                return (
+                  <motion.div
+                    key={`unique-${i}`}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2, delay: i * 0.03 }}
+                    className="flex items-center gap-2.5 p-2.5 bg-slate-50 rounded-xl border border-slate-100"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 text-[10px] font-bold text-slate-500 uppercase shadow-sm">
+                      {(job.company || "?").slice(0, 2)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12px] font-semibold text-slate-800 truncate">{job.title}</p>
+                      <p className="text-[11px] text-slate-500 truncate">{job.company}{job.location ? ` · ${job.location}` : ""}</p>
+                    </div>
+                    {/* HR status indicator */}
+                    {!hr && (
+                      <div className="w-5 h-5 rounded-full bg-slate-100 shrink-0" />
+                    )}
+                    {hr?.status === "searching" && (
+                      <Loader2 size={14} className="text-indigo-400 animate-spin shrink-0" title="Searching for HR email…" />
+                    )}
+                    {hr?.status === "found" && (
+                      <div className="flex items-center gap-1 shrink-0" title={hr.email}>
+                        <Mail size={12} className="text-green-500" />
+                        <span className="text-[10px] text-green-600 font-semibold max-w-[80px] truncate">{hr.email}</span>
+                      </div>
+                    )}
+                    {hr?.status === "not_found" && (
+                      <div className="w-5 h-5 rounded-full bg-red-50 border border-red-200 flex items-center justify-center shrink-0" title="HR email not found">
+                        <span className="text-red-500 text-[11px] font-bold leading-none">✕</span>
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        )}
+
+      </div>
+    </motion.div>
+  );
+}
+
+function ThinkingBubble() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -16, y: 8 }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
+      className="max-w-[78%]"
+    >
+      <div className="flex items-center gap-2 mb-2 opacity-70">
+        <AgentAvatar />
+        <span className="text-[11px] font-semibold text-primary tracking-wide">CareerAgent</span>
+      </div>
+      <div className="bg-white border border-slate-100 rounded-2xl rounded-tl-sm px-5 py-4 shadow-sm overflow-hidden relative">
+        <div className="absolute left-0 top-3 bottom-3 w-0.5 bg-primary rounded-full" />
+        <div className="pl-3 flex items-center gap-1.5">
+          {[0, 1, 2].map(i => (
+            <motion.span
+              key={i}
+              className="w-2 h-2 rounded-full bg-primary"
+              animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
+              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+            />
+          ))}
+          <span className="text-xs text-slate-400 ml-2">Thinking…</span>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+const SUGGESTIONS = [
+  {
+    icon: Search,
+    label: "Job Search",
+    text: "Find Senior React roles in New York",
+    gradient: "from-violet-500 to-indigo-500",
+    bg: "from-violet-50 to-indigo-50",
+    border: "border-violet-100 hover:border-violet-200",
+  },
+  {
+    icon: FileText,
+    label: "Resume",
+    text: "Parse and analyze my uploaded resume",
+    gradient: "from-primary to-emerald-400",
+    bg: "from-[hsl(195,94%,97%)] to-[hsl(195,90%,93%)]",
+    border: "border-[hsl(195,90%,93%)] hover:border-primary/30",
+  },
+  {
+    icon: Mail,
+    label: "Outreach",
+    text: "Draft cold emails to hiring managers",
+    gradient: "from-amber-500 to-orange-500",
+    bg: "from-amber-50 to-orange-50",
+    border: "border-amber-100 hover:border-amber-200",
+  },
+  {
+    icon: Zap,
+    label: "Match",
+    text: "Match my profile against open positions",
+    gradient: "from-emerald-500 to-teal-500",
+    bg: "from-emerald-50 to-teal-50",
+    border: "border-emerald-100 hover:border-emerald-200",
+  },
+];
+
+// ── Slash Commands ─────────────────────────────────────────────────────────────
+interface SlashCommand {
+  name: string;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+  action: "fill" | "send";
+  template: string;
+  pipeline: string;   // backend pipeline key
+  hint?: string;      // placeholder hint shown in input after command is selected
+}
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  {
+    name: "search",
+    label: "Search for jobs",
+    description: "Find matching job listings based on your role and location",
+    icon: Search,
+    action: "fill",
+    template: "",
+    pipeline: "job_search",
+    hint: "e.g. Senior React Developer in New York",
+  },
+  {
+    name: "improve",
+    label: "Improve my CV",
+    description: "AI suggestions to strengthen your CV + apply them in one click",
+    icon: Sparkles,
+    action: "send",
+    template: "Improve my CV",
+    pipeline: "cv_general",
+  },
+  {
+    name: "tailor",
+    label: "Tailor CV for a job",
+    description: "Paste a job description — agent tailors your CV and makes it downloadable",
+    icon: FileText,
+    action: "fill",
+    template: "",
+    pipeline: "cv_tailor",
+    hint: "Paste the job description or job URL here…",
+  },
+  {
+    name: "hr",
+    label: "Find HR email",
+    description: "Find HR, department head, or CEO contact email for any company",
+    icon: Mail,
+    action: "fill",
+    template: "",
+    pipeline: "hr_finder",
+    hint: "e.g. Google — Software Engineer role",
+  },
+  {
+    name: "interview",
+    label: "Interview prep",
+    description: "Paste job description (+ optionally attach your CV) — agent prepares questions, salary data & study plan",
+    icon: Brain,
+    action: "fill",
+    template: "",
+    pipeline: "interview_prep",
+    hint: "Paste the job description here (optionally attach your tailored CV via the 📎 button)…",
+  },
+  {
+    name: "apply",
+    label: "Full auto-apply pipeline",
+    description: "Search, tailor CV, find HR & send application emails automatically",
+    icon: Briefcase,
+    action: "fill",
+    template: "",
+    pipeline: "automated_apply",
+    hint: "e.g. Backend Engineer roles in London — apply to top 3",
+  },
+  {
+    name: "analyze",
+    label: "Analyze my CV",
+    description: "Deep analysis: strengths, gaps, ATS score & quick wins — attach a CV or uses your primary one",
+    icon: Zap,
+    action: "fill",
+    template: "",
+    pipeline: "cv_analysis",
+    hint: "Ask anything about your CV, or just press Enter for a full analysis…",
+  },
+];
+
+interface CenterPanelProps {
+  activeSessionId: string | null;
+  onSessionCreated: (id: string) => void;
+}
+
+export function CenterPanel({ activeSessionId, onSessionCreated }: CenterPanelProps) {
+  const [inputValue, setInputValue] = useState("");
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isSending, setIsSending] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Slash command menu state
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [slashQuery, setSlashQuery] = useState("");
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [activeCommand, setActiveCommand] = useState<SlashCommand | null>(null);
+  const [attachedFile, setAttachedFile] = useState<{ name: string; content: string } | null>(null);
+
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const { jobStream, clearJobStream } = useAgentStore();
+
+  const sessionIdRef = useRef<string | null>(activeSessionId);
+  useEffect(() => { sessionIdRef.current = activeSessionId; }, [activeSessionId]);
+
+  useEffect(() => {
+    if (activeSessionId) {
+      setMessages([]);
+      setIsSending(true);
+      getChatHistory(activeSessionId)
+        .then((data) => {
+          const formattedMessages: ChatMessage[] = data.messages
+            .filter((m) => !(m.role === "user" && m.content.startsWith("__")))
+            .map((m) => ({
+              id: m.id,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              metadata: m.metadata ?? null,
+              time: m.created_at
+                ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+                : "Now",
+            }));
+          setMessages(formattedMessages);
+          setIsSending(false);
+        })
+        .catch(() => setIsSending(false));
+    } else {
+      setMessages([]);
+    }
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleScroll = () => {
+    if (scrollContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+      setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 120);
+    }
+  };
+
+  const scrollToBottom = () => chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+
+  const handleSend = async (overrideText?: string, overridePipeline?: string) => {
+    const text = (overrideText || inputValue).trim();
+    if (!text && !attachedFile) return;
+    if (isSending && !overrideText) return;
+
+    const pipeline = overridePipeline ?? (activeCommand?.pipeline);
+    const fileSnap = attachedFile;
+
+    if (!overrideText) {
+      setInputValue("");
+      setActiveCommand(null);
+      setAttachedFile(null);
+    }
+
+    // What gets shown in the bubble (clean, no raw content)
+    const displayText = text || (fileSnap ? `📎 ${fileSnap.name}` : "");
+
+    // What gets sent to the backend (includes file content invisibly)
+    const backendText = fileSnap
+      ? `${text ? text + "\n\n" : ""}[ATTACHED FILE: ${fileSnap.name}]\n${fileSnap.content.slice(0, 6000)}`
+      : text;
+
+    const newMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: displayText,
+      time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+    };
+
+    setMessages((prev) => [...prev, newMsg]);
+    setIsSending(true);
+
+    try {
+      const targetSessionId = sessionIdRef.current || activeSessionId || crypto.randomUUID();
+      const resp = await sendChatMessage(backendText, targetSessionId, pipeline);
+      if (!activeSessionId) onSessionCreated(targetSessionId);
+      // Clear live stream panel when final job results card arrives — avoids duplication
+      if (resp.metadata?.type === "job_results") clearJobStream();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: resp.id || crypto.randomUUID(),
+          role: "assistant",
+          content: resp.content,
+          metadata: resp.metadata ?? null,
+          time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+        },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "⚠️ Couldn't reach the backend. Please try again in a moment.",
+          time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+        },
+      ]);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const sendAction = async (action: string) => {
+    setIsSending(true);
+    try {
+      const targetSessionId = sessionIdRef.current || activeSessionId || crypto.randomUUID();
+      const resp = await sendChatMessage(action, targetSessionId);
+      if (!activeSessionId) onSessionCreated(targetSessionId);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: resp.id || crypto.randomUUID(),
+          role: "assistant",
+          content: resp.content,
+          metadata: resp.metadata ?? null,
+          time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+        },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "⚠️ Failed to process action. Please try again.",
+          time: new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+        },
+      ]);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  // ── Slash command helpers ─────────────────────────────────────────────────
+  const filteredCommands = slashQuery
+    ? SLASH_COMMANDS.filter(
+        (c) =>
+          c.name.startsWith(slashQuery.toLowerCase()) ||
+          c.label.toLowerCase().includes(slashQuery.toLowerCase())
+      )
+    : SLASH_COMMANDS;
+
+  const selectSlashCommand = (cmd: SlashCommand) => {
+    setSlashMenuOpen(false);
+    setSlashQuery("");
+    setSlashIndex(0);
+    if (cmd.action === "send") {
+      setActiveCommand(null);
+      handleSend(cmd.template, cmd.pipeline);
+      setInputValue("");
+    } else {
+      setActiveCommand(cmd);
+      setInputValue("");
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.style.height = "auto";
+        }
+      }, 0);
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File is too large. Max 5MB allowed.");
+      return;
+    }
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["pdf", "docx", "txt", "md"].includes(ext || "")) {
+      alert("Supported: PDF, DOCX, TXT, MD");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const { uploadChatContext } = await import("@/services/api");
+      const resp = await uploadChatContext(file);
+      // Store in state — will be sent with the next user message
+      setAttachedFile({ name: file.name, content: resp.content });
+      inputRef.current?.focus();
+    } catch (err: any) {
+      alert(`Failed to read ${file.name}: ${err.message || "Unknown error"}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  function renderMetadataCard(msg: ChatMessage) {
+    const meta = msg.metadata;
+    if (!meta || !meta.type) return null;
+    switch (meta.type) {
+      case "job_results":     return <JobResultsCard metadata={meta as any} onSendAction={sendAction} />;
+      case "cv_review":       return <CVReviewCard metadata={meta as any} onSendAction={sendAction} />;
+      case "email_review":    return <EmailReviewCard metadata={meta as any} onSendAction={sendAction} />;
+      case "application_sent":return <ApplicationSentCard metadata={meta as any} onSendAction={sendAction} />;
+      case "interview_ready":          return <InterviewPrepCard metadata={meta as any} onSendAction={sendAction} />;
+      case "cv_selection":             return <CVSelectionCard metadata={meta as any} onSendAction={sendAction} />;
+      case "cv_improvements_suggested":return <CVImprovementActionCard onSendAction={sendAction} />;
+      case "cv_improved":              return <CVImprovedCard metadata={meta as any} onSendAction={sendAction} />;
+      default: return null;
+    }
+  }
+
+  const lastUserContent = [...messages].reverse().find(m => m.role === "user" && !m.content.startsWith("__"))?.content;
+
+  return (
+    <main className="flex flex-col h-full bg-white relative">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        className="hidden"
+        accept=".pdf,.docx,.txt,.md"
+      />
+
+      {/* Chat Messages */}
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-6 py-6 space-y-5"
+        style={{ background: "linear-gradient(180deg, #f8fafc 0%, #ffffff 60%)" }}
+      >
+        {/* Empty State */}
+        {messages.length === 0 && !isSending && (
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
+            className="flex flex-col items-center justify-center h-full min-h-[420px] px-4"
+          >
+            {/* Brand mark */}
+            <div className="relative mb-8">
+              <div
+                className="w-[72px] h-[72px] rounded-[22px] bg-primary flex items-center justify-center"
+                style={{ boxShadow: "0 8px 32px -4px hsl(195 94% 45% / 40%), 0 2px 8px -2px hsl(195 94% 45% / 20%)" }}
+              >
+                <Bot size={30} className="text-white" />
+              </div>
+              <motion.div
+                className="absolute -bottom-1.5 -right-1.5 w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center"
+                style={{ boxShadow: "0 2px 8px rgba(16,185,129,0.40)" }}
+                animate={{ scale: [1, 1.15, 1] }}
+                transition={{ duration: 2.5, repeat: Infinity }}
+              >
+                <Sparkles size={11} className="text-white" />
+              </motion.div>
+            </div>
+
+            <h2 className="text-[26px] font-serif tracking-tight text-slate-900 mb-2 text-center">
+              <span className="text-slate-800">Career</span>
+              <span className="text-primary">Agent</span>
+              <span className="text-slate-800"> is ready</span>
+            </h2>
+            <p className="text-[13px] text-slate-500 max-w-[340px] text-center mb-8 leading-[1.65]">
+              Job search · Resume tailoring · HR outreach · Interview prep — all in one conversation.
+            </p>
+
+            {/* Suggestion cards */}
+            <div className="grid grid-cols-2 gap-2.5 w-full max-w-[420px]">
+              {SUGGESTIONS.map((s, i) => (
+                <motion.button
+                  key={i}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15 + i * 0.07, duration: 0.35, ease: [0.16, 1, 0.32, 1] }}
+                  onClick={() => handleSend(s.text)}
+                  className={`flex flex-col gap-3 p-4 bg-gradient-to-br ${s.bg} border ${s.border} rounded-2xl text-left hover:shadow-card hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 group`}
+                >
+                  <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${s.gradient} flex items-center justify-center`}
+                    style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}>
+                    <s.icon size={14} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.07em] mb-1">{s.label}</p>
+                    <p className="text-[12px] font-medium text-slate-700 leading-snug">{s.text}</p>
+                  </div>
+                </motion.button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Messages */}
+        {messages.map((msg) => {
+          if (msg.role === "user" && msg.content.startsWith("__")) return null;
+
+          return msg.role === "user" ? (
+            <UserBubble
+              key={msg.id}
+              time={msg.time}
+              content={msg.content}
+              onEdit={(text) => {
+                setInputValue(text);
+                inputRef.current?.focus();
+              }}
+            >
+              {msg.content}
+            </UserBubble>
+          ) : (
+            <AgentBubble
+              key={msg.id}
+              time={msg.time}
+              content={msg.content}
+              onRegenerate={lastUserContent ? () => handleSend(lastUserContent) : undefined}
+            >
+              <div className="prose prose-sm prose-slate max-w-none prose-p:leading-relaxed prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:font-sans prose-headings:font-bold prose-a:text-primary prose-code:bg-slate-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-primary prose-code:text-xs prose-pre:bg-slate-900 prose-pre:rounded-xl">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {msg.content}
+                </ReactMarkdown>
+              </div>
+              {renderMetadataCard(msg)}
+            </AgentBubble>
+          );
+        })}
+
+        {/* Live job stream — persists until a new search starts (startJobStream resets it) */}
+        {jobStream && <LiveJobStreamPanel stream={jobStream} />}
+
+        {/* Generic thinking indicator — only when NOT actively streaming jobs */}
+        {(isSending || isUploading) && !jobStream?.active && <ThinkingBubble />}
+
+        <div ref={chatEndRef} />
       </div>
 
+      {/* Scroll to bottom */}
+      <AnimatePresence>
+        {showScrollBtn && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.8, y: 8 }}
+            onClick={scrollToBottom}
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 bg-white shadow-lg border border-slate-100 rounded-full px-4 py-2 flex items-center gap-2 hover:bg-slate-50 transition-colors text-xs font-semibold text-slate-600"
+          >
+            ↓ Latest
+          </motion.button>
+        )}
+      </AnimatePresence>
+
       {/* Input Area */}
-      <div className="px-8 py-4 border-t border-slate-100 bg-white flex-shrink-0">
-        <motion.div
-          layoutId="main-input"
-          className="w-full h-14 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm flex items-center px-5 gap-3 focus-within:border-rose-400 focus-within:ring-2 focus-within:ring-rose-100 focus-within:bg-white transition-all"
+      <div className="px-5 py-4 border-t border-black/[0.05] bg-white/98 backdrop-blur-sm flex-shrink-0">
+
+        {/* Slash command popover — rendered above input */}
+        <AnimatePresence>
+          {slashMenuOpen && filteredCommands.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              transition={{ duration: 0.15 }}
+              className="mb-2 w-full bg-white border border-slate-200 rounded-2xl shadow-lg overflow-hidden"
+            >
+              <div className="px-3 pt-2.5 pb-1">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Commands</p>
+              </div>
+              {filteredCommands.map((cmd, i) => {
+                const Icon = cmd.icon;
+                return (
+                  <button
+                    key={cmd.name}
+                    onMouseDown={(e) => { e.preventDefault(); selectSlashCommand(cmd); }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                      i === slashIndex
+                        ? "bg-violet-50 text-violet-900"
+                        : "hover:bg-slate-50 text-slate-700"
+                    }`}
+                  >
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      i === slashIndex ? "bg-violet-100" : "bg-slate-100"
+                    }`}>
+                      <Icon size={13} className={i === slashIndex ? "text-violet-600" : "text-slate-500"} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold leading-none mb-0.5">
+                        <span className="text-slate-400 font-mono">/</span>{cmd.name}
+                        <span className="ml-2 font-normal text-slate-500">{cmd.label}</span>
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">{cmd.description}</p>
+                    </div>
+                    <ChevronRight size={12} className={i === slashIndex ? "text-violet-400" : "text-slate-300"} />
+                  </button>
+                );
+              })}
+              <div className="px-3 py-1.5 border-t border-slate-100 flex items-center gap-3">
+                <span className="text-[9px] text-slate-400">↑↓ navigate</span>
+                <span className="text-[9px] text-slate-400">↵ select</span>
+                <span className="text-[9px] text-slate-400">Esc dismiss</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div
+          className="relative w-full bg-white rounded-2xl transition-all duration-200 focus-within:ring-[3px] focus-within:ring-primary/10"
+          style={{ border: "1px solid rgba(0,0,0,0.09)", boxShadow: "var(--shadow-card)" }}
         >
-          <Paperclip size={18} className="text-slate-400 hover:text-slate-600 cursor-pointer transition-colors flex-shrink-0" />
-          <Mic size={18} className="text-slate-400 hover:text-slate-600 cursor-pointer transition-colors flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Follow up, ask questions, or give instructions..."
-            className="flex-1 bg-transparent text-sm text-foreground font-sans placeholder:text-slate-400 outline-none caret-primary"
+          {/* Active command pill + attachment chip */}
+          {(activeCommand || attachedFile) && (
+            <div className="flex items-center gap-2 px-4 pt-3 pb-0 flex-wrap">
+              {activeCommand && (
+                <div className="flex items-center gap-1.5 bg-violet-50 border border-violet-200 rounded-lg px-2.5 py-1">
+                  <activeCommand.icon size={11} className="text-violet-600" />
+                  <span className="text-[11px] font-semibold text-violet-700 font-mono">/{activeCommand.name}</span>
+                  <span className="text-[10px] text-violet-500">{activeCommand.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setActiveCommand(null); setInputValue(""); inputRef.current?.focus(); }}
+                    className="ml-1 text-violet-400 hover:text-violet-600 transition-colors leading-none"
+                  >×</button>
+                </div>
+              )}
+              {attachedFile && (
+                <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1">
+                  <Paperclip size={11} className="text-emerald-600" />
+                  <span className="text-[11px] font-semibold text-emerald-700 max-w-[180px] truncate">{attachedFile.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setAttachedFile(null); inputRef.current?.focus(); }}
+                    className="ml-1 text-emerald-400 hover:text-emerald-600 transition-colors leading-none"
+                  >×</button>
+                </div>
+              )}
+            </div>
+          )}
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={inputValue}
+            onChange={(e) => {
+              const val = e.target.value;
+              setInputValue(val);
+              // Slash menu trigger — only when "/" is the first character (and no active command)
+              if (!activeCommand && val.startsWith("/")) {
+                setSlashQuery(val.slice(1));
+                setSlashMenuOpen(true);
+                setSlashIndex(0);
+              } else {
+                setSlashMenuOpen(false);
+                setSlashQuery("");
+              }
+              // auto-resize
+              e.target.style.height = "auto";
+              e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+            }}
+            onKeyDown={(e) => {
+              if (slashMenuOpen && filteredCommands.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setSlashIndex((i) => (i + 1) % filteredCommands.length);
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setSlashIndex((i) => (i - 1 + filteredCommands.length) % filteredCommands.length);
+                  return;
+                }
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  selectSlashCommand(filteredCommands[slashIndex]);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setSlashMenuOpen(false);
+                  return;
+                }
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            disabled={isSending}
+            placeholder={activeCommand?.hint ?? "Message CareerAgent… (/ for commands, Enter to send)"}
+            className="w-full px-5 pt-3.5 pb-12 bg-transparent text-[13px] text-foreground placeholder:text-slate-400 outline-none resize-none leading-relaxed disabled:opacity-50 max-h-40"
+            style={{ minHeight: "52px" }}
           />
-          <button className="w-10 h-10 rounded-full bg-primary flex items-center justify-center hover:bg-rose-700 hover:scale-105 active:scale-95 transition-all flex-shrink-0">
-            <ArrowUp size={18} className="text-white" />
-          </button>
-        </motion.div>
+          {/* Bottom toolbar */}
+          <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="p-2 hover:bg-slate-50 rounded-xl transition-colors disabled:opacity-40 flex items-center gap-1.5 text-slate-400 hover:text-slate-600"
+              title="Attach file (PDF, DOCX, TXT, MD)"
+            >
+              <Paperclip size={15} />
+              <span className="text-[11px] font-medium hidden sm:block">Attach</span>
+            </button>
+            <button
+              onClick={() => handleSend()}
+              disabled={(!inputValue.trim() && !attachedFile) || isSending}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[12px] font-semibold transition-all duration-200 active:scale-[0.96] ${
+                (inputValue.trim() || attachedFile) && !isSending
+                  ? "bg-primary text-white hover:brightness-110"
+                  : "bg-slate-100 text-slate-300 cursor-not-allowed"
+              }`}
+              style={(inputValue.trim() || attachedFile) && !isSending ? { boxShadow: "var(--shadow-brand-sm)" } : {}}
+            >
+              <ArrowUp size={13} />
+              Send
+            </button>
+          </div>
+        </div>
       </div>
     </main>
   );
