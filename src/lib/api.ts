@@ -1,9 +1,7 @@
-// In dev: use Vite proxy (relative URL). In prod: VITE_API_URL env or hardcoded fallback.
-const API_BASE =
-    (import.meta as any).env?.VITE_API_URL ||
-    (typeof window !== "undefined" && window.location.hostname !== "localhost"
-        ? "https://backend-production-c97f.up.railway.app"
-        : "");
+// In dev: Vite proxy handles /api → localhost:8080 (see vite.config.ts).
+// In prod: Vercel rewrites handle /api → Railway backend (see vercel.json).
+// Either way, use a relative base so requests stay same-origin and avoid CORS entirely.
+const API_BASE = (import.meta as any).env?.VITE_API_URL ?? "";
 
 interface FetchOptions extends RequestInit {
     token?: string;

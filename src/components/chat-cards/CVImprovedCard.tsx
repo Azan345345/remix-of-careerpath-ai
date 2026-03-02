@@ -20,8 +20,7 @@ export function CVImprovedCard({ metadata, onSendAction }: Props) {
 
   const handleDownload = async () => {
     const token = localStorage.getItem("token");
-    const base = (import.meta as any).env?.VITE_API_URL ||
-        (window.location.hostname !== "localhost" ? "https://backend-production-c97f.up.railway.app" : "http://localhost:8080");
+    const base = (import.meta as any).env?.VITE_API_URL ?? "";
     const url = `${base}/api/cv/tailored/${tailored_cv_id}/download`;
     try {
       const res = await fetch(url, {
